@@ -6,6 +6,8 @@
 
 Takes a score and automatically draws the **concert flute fingering** under every note,
 in the style of the [Woodwind Fingering Guide](https://www.wfg.woodwind.org/flute/) charts.
+The score itself is engraved in full (rhythms, beams, ties, key and time signatures,
+repeats) by [Verovio](https://www.verovio.org).
 
 Accepts **MusicXML**, a **simple text format**, and also **PDFs and images**.
 
@@ -31,25 +33,25 @@ which finger to move.
 
 ## Installation
 
-Requires **Python 3.10+**. There are no required dependencies.
+Requires **Python 3.10+**. The only dependency, [Verovio](https://pypi.org/project/verovio/)
+(music engraving), is installed automatically by pip.
+
+```bash
+pip install git+https://github.com/GustavoSanches55/sheet-to-flute-fingering.git
+```
+
+Or from a local clone:
 
 ```bash
 git clone https://github.com/GustavoSanches55/sheet-to-flute-fingering.git
 cd sheet-to-flute-fingering
-```
-
-Run it straight from the folder, without installing:
-
-```bash
-python -m flute_fingering examples/ode_to_joy.musicxml --open
-```
-
-Or install it to get the `flute-fingering` command:
-
-```bash
 pip install .            # basic
 pip install ".[image]"   # + Pillow, to upscale small images (optional)
 ```
+
+This installs the `flute-fingering` command. If your terminal says the command is not
+recognized, pip's `Scripts` folder is not on your `PATH`; use
+`python -m flute_fingering` instead (pip prints that folder's location when installing).
 
 ## Usage
 
@@ -129,12 +131,23 @@ flute-fingering my_song.pdf --open
 ```python
 from flute_fingering import read_score, render_html, fingering, Note
 
-title, measures = read_score("examples/ode_to_joy.musicxml")
-page = render_html(title, measures)
+score = read_score("examples/ode_to_joy.musicxml")
+page = render_html(score)
 
 fingering(Note("F", 1, 4))   # closed keys for F♯4
 # frozenset({'T', 'L1', 'L2', 'L3', 'R3', 'Eb'})
 ```
+
+## How it works
+
+1. The score is read and reduced to its first part. Plain text is converted to MusicXML
+   (one quarter note per note); PDFs and images are converted by Audiveris.
+2. Each note gets its name (e.g. `F♯4`) as a lyric. Verovio lays lyrics out without
+   collisions, which spreads the notes far enough apart for the diagrams.
+3. Verovio engraves the score to SVG. The real pitch of each note, including the key
+   signature, comes from Verovio's MEI export.
+4. Every line of music is moved down to make room, and a fingering diagram is drawn
+   under each note name.
 
 ## Project structure
 
@@ -142,9 +155,11 @@ fingering(Note("F", 1, 4))   # closed keys for F♯4
 .
 ├── flute_fingering/        # Python package
 │   ├── cli.py              # command line
-│   ├── fingerings.py       # fingering chart (Boehm system)
-│   ├── render.py           # staff, key diagrams (SVG) and HTML page
 │   ├── reader.py           # MusicXML and text reading
+│   ├── engrave.py          # full notation with Verovio + diagram placement
+│   ├── diagram.py          # fingering diagram drawing (SVG) and legend
+│   ├── fingerings.py       # fingering chart (Boehm system)
+│   ├── render.py           # HTML page
 │   ├── notes.py            # Note class
 │   ├── omr.py              # PDF/image via Audiveris (optional)
 │   └── errors.py
@@ -170,7 +185,11 @@ Tests run automatically on GitHub Actions (Linux and Windows) on every push.
 - When a note has more than one fingering, the most common one is used. For example,
   B♭ uses right hand finger 1, not the thumb B♭ lever.
 - Only the first part (instrument) of the score is read.
+- Lyrics in the original score are replaced by the note names.
+- Grace notes and the lower notes of chords get no diagram.
 
 ## License
 
-[MIT](LICENSE). Audiveris has its own license (AGPLv3) and is not part of this repository.
+[MIT](LICENSE). Third-party tools keep their own licenses: Verovio (LGPLv3, installed
+from PyPI) and Audiveris (AGPLv3, optional, installed separately). Neither is included
+in this repository.

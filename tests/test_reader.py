@@ -1,11 +1,12 @@
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
 from flute_fingering.errors import FingeringError
 from flute_fingering.notes import Note
-from flute_fingering.reader import read_musicxml, read_score, read_text
+from flute_fingering.reader import _read_root, read_musicxml, read_score, read_text
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
@@ -68,9 +69,26 @@ class TestMusicXML(unittest.TestCase):
 
 
 class TestReadScore(unittest.TestCase):
-    def test_chooses_by_extension(self):
-        _, m = read_score(EXAMPLES / "scale_and_intervals.txt")
-        self.assertEqual(names(m)[0], ["D4", "E4"])
+    def test_text_becomes_musicxml(self):
+        score = read_score(EXAMPLES / "scale_and_intervals.txt")
+        self.assertEqual(names(score.measures)[0], ["D4", "E4"])
+        self.assertEqual(score.note_count, 29)
+        # the generated MusicXML reads back to the same notes
+        title, measures = _read_root(ET.fromstring(score.musicxml))
+        self.assertEqual(title, score.title)
+        self.assertEqual(names(measures), names(score.measures))
+
+    def test_musicxml_keeps_only_the_first_part(self):
+        with tempfile.TemporaryDirectory() as folder:
+            two_parts = Path(folder) / "duet.musicxml"
+            text = (EXAMPLES / "ode_to_joy.musicxml").read_text(encoding="utf-8")
+            part = text[text.index('<part id="P1">'):text.index("</part>") + len("</part>")]
+            text = text.replace("</part-list>", '<score-part id="P2"><part-name>Piano</part-name></score-part></part-list>')
+            text = text.replace("</score-partwise>", part.replace('id="P1"', 'id="P2"') + "</score-partwise>")
+            two_parts.write_text(text, encoding="utf-8")
+            score = read_score(two_parts)
+        self.assertNotIn('id="P2"', score.musicxml)
+        self.assertEqual(score.note_count, 15)
 
     def test_missing_file(self):
         with self.assertRaises(FingeringError):

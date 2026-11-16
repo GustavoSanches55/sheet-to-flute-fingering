@@ -11,8 +11,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from flute_fingering.reader import read_text  # noqa: E402
-from flute_fingering.render import LEGEND, render_svg  # noqa: E402
+from flute_fingering.diagram import LEGEND  # noqa: E402
+from flute_fingering.engrave import engrave  # noqa: E402
+from flute_fingering.reader import read_score  # noqa: E402
 
 
 def with_white_background(svg):
@@ -22,9 +23,9 @@ def with_white_background(svg):
 
 
 def main():
-    _, measures = read_text(ROOT / "examples" / "scale_and_intervals.txt")
-    example, _ = render_svg(measures[:7])  # the pairs of neighboring notes
-    (ROOT / "docs" / "example.svg").write_text(with_white_background(example), encoding="utf-8")
+    score = read_score(ROOT / "examples" / "ode_to_joy.musicxml")
+    pages, _ = engrave(score.musicxml)
+    (ROOT / "docs" / "example.svg").write_text(with_white_background(pages[0]), encoding="utf-8")
     (ROOT / "docs" / "legend.svg").write_text(with_white_background(LEGEND.strip()), encoding="utf-8")
     print("Generated docs/example.svg and docs/legend.svg.")
 

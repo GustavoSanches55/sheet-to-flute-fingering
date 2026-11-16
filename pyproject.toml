@@ -4,12 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flute-fingering"
-version = "0.1.0"
+version = "0.2.0"
 description = "Automatically annotate scores (MusicXML, text, PDF or image) with concert flute fingering diagrams."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "verovio>=4.0",  # music engraving (draws the full notation)
+]
 keywords = ["flute", "fingering", "fingering-chart", "musicxml", "sheet-music", "omr"]
 classifiers = [
     "Programming Language :: Python :: 3",

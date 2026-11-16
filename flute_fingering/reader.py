@@ -1,9 +1,12 @@
 """Score reading: MusicXML (.musicxml/.xml/.mxl), plain text (.txt) and PDF/image."""
 
+import copy
+import html
 import re
 import shutil
 import xml.etree.ElementTree as ET
 import zipfile
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .errors import FingeringError
@@ -11,6 +14,18 @@ from .notes import Note
 
 MUSICXML_EXTENSIONS = (".musicxml", ".xml", ".mxl")
 OMR_EXTENSIONS = (".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")
+
+
+@dataclass
+class Score:
+    """A score ready to be rendered."""
+    title: str
+    measures: list = field(default_factory=list)  # lists of Note (used for counting/inspection)
+    musicxml: str = ""                            # first part only, as MusicXML text (drawn by Verovio)
+
+    @property
+    def note_count(self):
+        return sum(1 for m in self.measures for n in m if not n.is_rest)
 
 
 # ---------------------------------------------------------------------------
@@ -46,8 +61,8 @@ def _read_xml_bytes(path):
         return z.read(target)
 
 
-def read_musicxml(path):
-    """Read the first part of a MusicXML file. Returns (title, list of measures)."""
+def _load_musicxml(path):
+    """Parse a MusicXML file (plain or compressed) and return its root element."""
     path = Path(path)
     try:
         root = ET.fromstring(_read_xml_bytes(path))
@@ -56,7 +71,32 @@ def read_musicxml(path):
     if _local(root.tag) != "score-partwise":
         raise FingeringError("Only 'score-partwise' MusicXML is supported "
                              "(the default for MuseScore, Finale, Sibelius...).")
+    if _child(root, "part") is None:
+        raise FingeringError("No <part> found in the file.")
+    return root
 
+
+def _first_part_only(root):
+    """Copy of the score keeping only the first part (the flute line), as MusicXML text."""
+    root = copy.deepcopy(root)
+    parts = [c for c in root if _local(c.tag) == "part"]
+    keep = parts[0].get("id")
+    for p in parts[1:]:
+        root.remove(p)
+    part_list = _child(root, "part-list")
+    if part_list is not None:
+        for sp in list(part_list):
+            if _local(sp.tag) == "score-part" and sp.get("id") != keep:
+                part_list.remove(sp)
+    return root
+
+
+def read_musicxml(path):
+    """Read the first part of a MusicXML file. Returns (title, list of measures)."""
+    return _read_root(_load_musicxml(path))
+
+
+def _read_root(root):
     title = ""
     for title_path in (("work", "work-title"), ("movement-title",)):
         el = root
@@ -67,9 +107,6 @@ def read_musicxml(path):
             break
 
     part = _child(root, "part")
-    if part is None:
-        raise FingeringError("No <part> found in the file.")
-
     measures = []
     for measure in part:
         if _local(measure.tag) != "measure":
@@ -153,8 +190,55 @@ def read_text(path):
 # ---------------------------------------------------------------------------
 # Generic entry point
 # ---------------------------------------------------------------------------
+_ACCIDENTAL_NAMES = {-2: "flat-flat", -1: "flat", 1: "sharp", 2: "double-sharp"}
+
+
+def measures_to_musicxml(title, measures):
+    """Convert notes without rhythm (plain text format) into MusicXML: one quarter note per note."""
+    out = ['<?xml version="1.0" encoding="UTF-8"?>',
+           '<score-partwise version="4.0">',
+           f'<work><work-title>{html.escape(title)}</work-title></work>',
+           '<part-list><score-part id="P1"><part-name print-object="no">Flute</part-name></score-part></part-list>',
+           '<part id="P1">']
+    previous_len = None
+    for i, measure in enumerate(measures, 1):
+        out.append(f'<measure number="{i}">')
+        if i == 1 or len(measure) != previous_len:
+            first = ('<divisions>1</divisions><key><fifths>0</fifths></key>' if i == 1 else "")
+            clef = '<clef><sign>G</sign><line>2</line></clef>' if i == 1 else ""
+            out.append(f'<attributes>{first}<time print-object="no"><beats>{len(measure)}</beats>'
+                       f'<beat-type>4</beat-type></time>{clef}</attributes>')
+            previous_len = len(measure)
+        for n in measure:
+            if n.is_rest:
+                out.append('<note><rest/><duration>1</duration><type>quarter</type></note>')
+                continue
+            alter = f'<alter>{n.alter}</alter>' if n.alter else ""
+            accidental = (f'<accidental>{_ACCIDENTAL_NAMES[n.alter]}</accidental>'
+                          if n.alter in _ACCIDENTAL_NAMES else "")
+            out.append(f'<note><pitch><step>{n.step}</step>{alter}<octave>{n.octave}</octave></pitch>'
+                       f'<duration>1</duration><type>quarter</type>{accidental}</note>')
+        if i == len(measures):
+            out.append('<barline location="right"><bar-style>light-heavy</bar-style></barline>')
+        out.append('</measure>')
+    out.append('</part></score-partwise>')
+    return "\n".join(out)
+
+
+def _score_from_roots(roots):
+    """Build a Score from one or more MusicXML roots (several = movements, joined in order)."""
+    main = _first_part_only(roots[0])
+    main_part = _child(main, "part")
+    for extra in roots[1:]:
+        for measure in _child(extra, "part"):
+            if _local(measure.tag) == "measure":
+                main_part.append(copy.deepcopy(measure))
+    title, measures = _read_root(main)
+    return Score(title, measures, ET.tostring(main, encoding="unicode"))
+
+
 def read_score(path, audiveris=None):
-    """Read any supported format, chosen by file extension. Returns (title, measures).
+    """Read any supported format, chosen by file extension. Returns a :class:`Score`.
 
     For PDF/images, Audiveris is used (see :mod:`flute_fingering.omr`) and the
     recognized score is saved next to the original as ``<name>_recognized.mxl``.
@@ -164,19 +248,18 @@ def read_score(path, audiveris=None):
         raise FingeringError(f"File not found: {path}")
     ext = path.suffix.lower()
     if ext in MUSICXML_EXTENSIONS:
-        return read_musicxml(path)
+        return _score_from_roots([_load_musicxml(path)])
     if ext in OMR_EXTENSIONS:
         from . import omr
-        title, measures = "", []
+        roots = []
         with omr.recognize(path, audiveris) as results:
             for i, mxl in enumerate(results):
                 suffix = "" if i == 0 else f"_{i+1}"
-                copy = path.with_name(f"{path.stem}_recognized{suffix}{mxl.suffix}")
-                shutil.copyfile(mxl, copy)
-                print(f"Recognized score saved to: {copy}")
-                t, m = read_musicxml(mxl)
-                title = title or t
-                measures += m
+                saved = path.with_name(f"{path.stem}_recognized{suffix}{mxl.suffix}")
+                shutil.copyfile(mxl, saved)
+                print(f"Recognized score saved to: {saved}")
+                roots.append(_load_musicxml(mxl))
         print("Note: automatic recognition may get some notes wrong. Compare with the original.")
-        return title, measures
-    return read_text(path)
+        return _score_from_roots(roots)
+    title, measures = read_text(path)
+    return Score(title, measures, measures_to_musicxml(title, measures))

@@ -31,19 +31,19 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
-        title, measures = read_score(args.score, args.audiveris)
+        score = read_score(args.score, args.audiveris)
+        if not score.note_count:
+            raise FingeringError("No notes found in the score.")
+        stem = re.sub(r"_recognized(_\d+)?$", "", args.score.stem)
+        score.title = score.title or re.sub(r"[-_]+", " ", stem).strip().title()
+        page = render_html(score)
     except FingeringError as e:
         print(e, file=sys.stderr)
         return 1
-    if not measures:
-        print("No notes found in the score.", file=sys.stderr)
-        return 1
 
     output = args.output or args.score.with_name(args.score.stem + "_fingering.html")
-    title = title or re.sub(r"[-_]+", " ", args.score.stem).strip().title()
-    output.write_text(render_html(title, measures), encoding="utf-8")
-    total = sum(1 for m in measures for n in m if not n.is_rest)
-    print(f"{total} notes annotated -> {output}")
+    output.write_text(page, encoding="utf-8")
+    print(f"{score.note_count} notes annotated -> {output}")
     if args.open:
         webbrowser.open(output.resolve().as_uri())
     return 0
