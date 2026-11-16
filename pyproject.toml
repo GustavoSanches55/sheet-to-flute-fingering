@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flute-fingering"
+version = "0.1.0"
+description = "Automatically annotate scores (MusicXML, text, PDF or image) with concert flute fingering diagrams."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = []
+keywords = ["flute", "fingering", "fingering-chart", "musicxml", "sheet-music", "omr"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Multimedia :: Sound/Audio",
+]
+
+[project.urls]
+Homepage = "https://github.com/GustavoSanches55/sheet-to-flute-fingering"
+Issues = "https://github.com/GustavoSanches55/sheet-to-flute-fingering/issues"
+
+[project.optional-dependencies]
+# Automatically upscales small images before recognition (PDF/image input)
+image = ["pillow"]
+
+[project.scripts]
+flute-fingering = "flute_fingering.cli:main"
+
+[tool.setuptools]
+packages = ["flute_fingering"]
